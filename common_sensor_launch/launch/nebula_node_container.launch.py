@@ -84,13 +84,14 @@ def launch_setup(context, *args, **kwargs):
 
     nodes = []
 
-    nodes.append(
+    # Glog will be added elsewhere
+    """ nodes.append(
         ComposableNode(
             package="glog_component",
             plugin="GlogComponent",
             name="glog_component",
         )
-    )
+    ) """
 
     nodes.append(
         ComposableNode(
@@ -119,14 +120,68 @@ def launch_setup(context, *args, **kwargs):
                 },
             ],
             remappings=[
-                ("aw_points", "pointcloud_raw"),
-                ("aw_points_ex", "pointcloud_raw_ex"),
+                #("aw_points", "pointcloud_raw"),
+                #("aw_points_ex", "pointcloud_raw_ex"),
+                ("pandar_points", "pointcloud_raw_ex"),
+                ("velodyne_points", "pointcloud_raw_ex"),
             ],
-            extra_arguments=[{"use_intra_process_comms": LaunchConfiguration("use_intra_process")}],
+            #extra_arguments=[{"use_intra_process_comms": LaunchConfiguration("use_intra_process")}],
         )
     )
 
     nodes.append(
+        ComposableNode(
+            package="cuda_organized_pointcloud_adapter",
+            plugin="cuda_organized_pointcloud_adapter::CudaOrganizedPointcloudAdapterNode",
+            name="cuda_organized_pointcloud_adapter_node",
+            remappings=[
+                ("~/input/pointcloud", "pointcloud_raw_ex"),
+                ("~/output/pointcloud", "cuda_points"),
+                ("~/output/pointcloud/cuda", "cuda_points/cuda"),
+            ],
+            # The whole node can not set use_intra_process due to type negotiation internal topics
+            #extra_arguments=[{"use_intra_process_comms": LaunchConfiguration("use_intra_process")}],
+        )
+    )
+
+    vehicle_info = get_vehicle_info(context)
+    mirror_info = load_composable_node_param("vehicle_mirror_param_file")
+    
+    preprocessor_parameters = {}
+    preprocessor_parameters["self_crop.min_x"] = vehicle_info["min_longitudinal_offset"]
+    preprocessor_parameters["self_crop.max_x"] = vehicle_info["max_longitudinal_offset"]
+    preprocessor_parameters["self_crop.min_y"] = vehicle_info["min_lateral_offset"]
+    preprocessor_parameters["self_crop.max_y"] = vehicle_info["max_lateral_offset"]
+    preprocessor_parameters["self_crop.min_z"] = vehicle_info["min_height_offset"]
+    preprocessor_parameters["self_crop.max_z"] = vehicle_info["max_height_offset"]
+    preprocessor_parameters["mirror_crop.min_x"] = mirror_info["min_longitudinal_offset"]
+    preprocessor_parameters["mirror_crop.max_x"] = mirror_info["max_longitudinal_offset"]
+    preprocessor_parameters["mirror_crop.min_y"] = mirror_info["min_lateral_offset"]
+    preprocessor_parameters["mirror_crop.max_y"] = mirror_info["max_lateral_offset"]
+    preprocessor_parameters["mirror_crop.min_z"] = mirror_info["min_height_offset"]
+    preprocessor_parameters["mirror_crop.max_z"] = mirror_info["max_height_offset"]
+    preprocessor_parameters["use_3d_undistortion"] = LaunchConfiguration("use_3d_undistortion")
+
+    nodes.append(
+        ComposableNode(
+            package="cuda_pointcloud_preprocessor",
+            plugin="cuda_pointcloud_preprocessor::CudaPointcloudPreprocessorNode",
+            name="pointcloud_preprocessor_node",
+            parameters=[preprocessor_parameters],
+            remappings=[
+                ("~/input/pointcloud", "cuda_points"),
+                ("~/input/pointcloud/cuda", "cuda_points/cuda"),
+                ("~/input/twist", "/sensing/vehicle_velocity_converter/twist_with_covariance"),
+                ("~/input/imu", "/sensing/imu/imu_data"),
+                ("~/output/pointcloud", "pointcloud_before_sync"),
+                ("~/output/pointcloud/cuda", "pointcloud_before_sync/cuda"),
+            ],
+            # The whole node can not set use_intra_process due to type negotiation internal topics
+            #extra_arguments=[{"use_intra_process_comms": LaunchConfiguration("use_intra_process")}],
+        )
+    )
+
+    """ nodes.append(
         ComposableNode(
             package="nebula_ros",
             plugin=sensor_make + "HwMonitorRosWrapper",
@@ -237,16 +292,21 @@ def launch_setup(context, *args, **kwargs):
             parameters=[ring_outlier_filter_parameters],
             extra_arguments=[{"use_intra_process_comms": LaunchConfiguration("use_intra_process")}],
         )
-    )
+    ) """
 
     # set container to run all required components in the same process
-    container = ComposableNodeContainer(
+    """ container = ComposableNodeContainer(
         name=LaunchConfiguration("container_name"),
         namespace="pointcloud_preprocessor",
         package="rclcpp_components",
         executable=LaunchConfiguration("container_executable"),
         composable_node_descriptions=nodes,
         output="both",
+    ) """
+
+    loader = LoadComposableNodes(
+        composable_node_descriptions=nodes,
+        target_container=LaunchConfiguration("container_name"),
     )
 
     driver_component = ComposableNode(
@@ -307,7 +367,7 @@ def launch_setup(context, *args, **kwargs):
         extra_arguments=[{"use_intra_process_comms": LaunchConfiguration("use_intra_process")}],
     )
 
-    driver_component_loader = LoadComposableNodes(
+    """ driver_component_loader = LoadComposableNodes(
         composable_node_descriptions=[driver_component],
         target_container=container,
         condition=IfCondition(LaunchConfiguration("launch_driver")),
@@ -316,9 +376,10 @@ def launch_setup(context, *args, **kwargs):
         composable_node_descriptions=[blockage_diag_component],
         target_container=container,
         condition=IfCondition(LaunchConfiguration("enable_blockage_diag")),
-    )
+    ) """
 
-    return [container, driver_component_loader, blockage_diag_loader]
+    #return [container, driver_component_loader, blockage_diag_loader]
+    return [loader]
 
 
 def generate_launch_description():
@@ -365,6 +426,8 @@ def generate_launch_description():
     add_launch_arg("diag_span", "1000", "")
     add_launch_arg("delay_monitor_ms", "2000", "")
     add_launch_arg("output_as_sensor_frame", "True", "output final pointcloud in sensor frame")
+
+    add_launch_arg("use_3d_undistortion", "false")
 
     add_launch_arg("enable_blockage_diag", "true")
     add_launch_arg("horizontal_ring_id", "64")

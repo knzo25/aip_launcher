@@ -15,7 +15,7 @@
   <arg name="cloud_min_angle" default="0"/>
   <arg name="cloud_max_angle" default="360"/>
   <arg name="vehicle_mirror_param_file"/>
-  <arg name="container_name" default="velodyne_node_container"/>
+  <arg name="container_name" default="pointcloud_container"/>
   <arg name="vertical_bins" default="128"/>
   <arg name="horizontal_ring_id" default="64"/>
   <arg name="is_channel_order_top2down" default="false"/>
